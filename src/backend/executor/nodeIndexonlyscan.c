@@ -33,6 +33,7 @@
 #include "access/genam.h"
 #include "access/relscan.h"
 #include "access/tableam.h"
+#include "executor/execScan.h"
 #include "executor/executor.h"
 #include "executor/instrument.h"
 #include "executor/nodeIndexonlyscan.h"
@@ -50,7 +51,7 @@ static TupleTableSlot *IndexOnlyNext(IndexOnlyScanState *node);
  *		Retrieve a tuple from the IndexOnlyScan node's index.
  * ----------------------------------------------------------------
  */
-static TupleTableSlot *
+static pg_always_inline TupleTableSlot *
 IndexOnlyNext(IndexOnlyScanState *node)
 {
 	EState	   *estate;
@@ -179,9 +180,17 @@ ExecIndexOnlyScan(PlanState *pstate)
 	if (node->ioss_NumRuntimeKeys != 0 && !node->ioss_RuntimeKeysReady)
 		ExecReScan((PlanState *) node);
 
-	return ExecScan(&node->ss,
-					(ExecScanAccessMtd) IndexOnlyNext,
-					(ExecScanRecheckMtd) IndexOnlyRecheck);
+	/*
+	 * Use the inline ExecScanExtended() rather than ExecScan(), so that the
+	 * compiler can inline IndexOnlyNext() instead of calling it through a
+	 * function pointer for each tuple.
+	 */
+	return ExecScanExtended(&node->ss,
+							(ExecScanAccessMtd) IndexOnlyNext,
+							(ExecScanRecheckMtd) IndexOnlyRecheck,
+							pstate->state->es_epq_active,
+							pstate->qual,
+							pstate->ps_ProjInfo);
 }
 
 /* ----------------------------------------------------------------
